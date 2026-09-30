@@ -150,8 +150,24 @@ static void process_line(char *line)
 
 /* ---------- main ---------- */
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    FILE *input = stdin;
+    int interactive = 1;
+
+    if (argc > 2) {
+        print_error();
+        exit(1);
+    }
+    if (argc == 2) {
+        input = fopen(argv[1], "r");
+        if (!input) {
+            print_error();
+            exit(1);
+        }
+        interactive = 0;
+    }
+
     char *initial[] = { "/bin" };
     set_path(initial, 1);
 
@@ -159,13 +175,19 @@ int main(void)
     size_t cap = 0;
 
     while (1) {
-        printf("wish> ");
-        fflush(stdout);
-        if (getline(&line, &cap, stdin) == -1)
+        if (interactive) {
+            printf("wish> ");
+            fflush(stdout);
+        }
+        ssize_t len = getline(&line, &cap, input);
+        if (len == -1)
             break; /* EOF */
         process_line(line);
     }
+
     free(line);
     free_path();
-    return 0;
+    if (input != stdin)
+        fclose(input);
+    exit(0);
 }
