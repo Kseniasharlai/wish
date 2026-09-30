@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -104,15 +105,37 @@ static void run_builtin(char **argv, int argc)
 /* Для зовнішніх команд повертає pid дочірнього процесу, інакше -1. */
 static pid_t run_segment(char *segment)
 {
+    char *redir_file = NULL;
     char *argv[MAX_ARGS];
-    int argc = tokenize(segment, argv, MAX_ARGS);
+    char *out_argv[MAX_ARGS];
+    int argc;
 
+    /* редирекція */
+    char *gt = strchr(segment, '>');
+    if (gt) {
+        if (strchr(gt + 1, '>')) { /* більше одного '>' */
+            print_error();
+            return -1;
+        }
+        *gt = '\0';
+        int n = tokenize(gt + 1, out_argv, MAX_ARGS);
+        if (n != 1) { /* немає файлу або файлів забагато */
+            print_error();
+            return -1;
+        }
+        redir_file = out_argv[0];
+    }
+
+    argc = tokenize(segment, argv, MAX_ARGS);
     if (argc < 0) {
         print_error();
         return -1;
     }
-    if (argc == 0)
-        return -1; /* порожній рядок */
+    if (argc == 0) {
+        if (redir_file) /* "> file" без команди */
+            print_error();
+        return -1; /* порожній сегмент - просто ігноруємо */
+    }
 
     if (is_builtin(argv[0])) {
         run_builtin(argv, argc);
@@ -132,6 +155,18 @@ static pid_t run_segment(char *segment)
         return -1;
     }
     if (pid == 0) {
+        if (redir_file) {
+            int fd = open(redir_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) {
+                print_error();
+                _exit(1);
+            }
+            if (dup2(fd, STDOUT_FILENO) < 0 || dup2(fd, STDERR_FILENO) < 0) {
+                print_error();
+                _exit(1);
+            }
+            close(fd);
+        }
         execv(full, argv);
         print_error(); /* execv повернувся - помилка */
         _exit(1);
