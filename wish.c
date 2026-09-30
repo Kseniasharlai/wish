@@ -175,12 +175,21 @@ static pid_t run_segment(char *segment)
     return pid;
 }
 
-/* Обробляє один рядок вводу і чекає на завершення команди. */
+/* Обробляє цілий рядок: розбиває за '&', запускає паралельно, чекає всіх. */
 static void process_line(char *line)
 {
-    pid_t pid = run_segment(line);
-    if (pid > 0)
-        waitpid(pid, NULL, 0);
+    pid_t pids[MAX_ARGS];
+    int npids = 0;
+    char *rest = line;
+    char *segment;
+
+    while ((segment = strsep(&rest, "&")) != NULL) {
+        pid_t pid = run_segment(segment);
+        if (pid > 0 && npids < MAX_ARGS)
+            pids[npids++] = pid;
+    }
+    for (int i = 0; i < npids; i++)
+        waitpid(pids[i], NULL, 0);
 }
 
 /* ---------- main ---------- */
