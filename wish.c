@@ -30,10 +30,34 @@ static int tokenize(char *s, char **argv, int max)
     return argc;
 }
 
-/* ---------- шлях пошуку (поки що фіксований) ---------- */
+/* ---------- шлях пошуку ---------- */
 
-static char *search_path[] = { "/bin" };
-static size_t path_count = 1;
+static char **search_path = NULL;
+static size_t path_count = 0;
+
+static void free_path(void)
+{
+    for (size_t i = 0; i < path_count; i++)
+        free(search_path[i]);
+    free(search_path);
+    search_path = NULL;
+    path_count = 0;
+}
+
+static void set_path(char **dirs, size_t n)
+{
+    free_path();
+    if (n == 0)
+        return;
+    search_path = malloc(n * sizeof(char *));
+    if (!search_path) {
+        print_error();
+        return;
+    }
+    for (size_t i = 0; i < n; i++)
+        search_path[i] = strdup(dirs[i]);
+    path_count = n;
+}
 
 /* Повертає malloc'ований повний шлях до виконуваного файлу або NULL. */
 static char *find_executable(const char *cmd)
@@ -51,6 +75,30 @@ static char *find_executable(const char *cmd)
     return NULL;
 }
 
+/* ---------- вбудовані команди ---------- */
+
+static int is_builtin(const char *cmd)
+{
+    return !strcmp(cmd, "exit") || !strcmp(cmd, "cd") || !strcmp(cmd, "path");
+}
+
+static void run_builtin(char **argv, int argc)
+{
+    if (!strcmp(argv[0], "exit")) {
+        if (argc != 1) {
+            print_error();
+            return;
+        }
+        free_path();
+        exit(0);
+    } else if (!strcmp(argv[0], "cd")) {
+        if (argc != 2 || chdir(argv[1]) != 0)
+            print_error();
+    } else if (!strcmp(argv[0], "path")) {
+        set_path(argv + 1, (size_t)(argc - 1));
+    }
+}
+
 /* ---------- виконання однієї команди ---------- */
 
 /* Для зовнішніх команд повертає pid дочірнього процесу, інакше -1. */
@@ -66,12 +114,9 @@ static pid_t run_segment(char *segment)
     if (argc == 0)
         return -1; /* порожній рядок */
 
-    if (!strcmp(argv[0], "exit")) {
-        if (argc != 1) {
-            print_error();
-            return -1;
-        }
-        exit(0);
+    if (is_builtin(argv[0])) {
+        run_builtin(argv, argc);
+        return -1;
     }
 
     char *full = find_executable(argv[0]);
@@ -107,6 +152,9 @@ static void process_line(char *line)
 
 int main(void)
 {
+    char *initial[] = { "/bin" };
+    set_path(initial, 1);
+
     char *line = NULL;
     size_t cap = 0;
 
@@ -118,5 +166,6 @@ int main(void)
         process_line(line);
     }
     free(line);
+    free_path();
     return 0;
 }
